@@ -107,7 +107,7 @@ export interface SettingsSchema {
 
 /**
  * Common items schema for hook definitions.
- * Used by both UserPromptSubmit and Stop hooks.
+ * Used by all hook event types in the hooks configuration.
  */
 const HOOK_DEFINITION_ITEMS: SettingItemDefinition = {
   type: 'object',
@@ -185,6 +185,18 @@ const SETTINGS_SCHEMA = {
     requiresRestart: true,
     default: {} as Record<string, MCPServerConfig>,
     description: 'Configuration for MCP servers.',
+    showInDialog: false,
+    mergeStrategy: MergeStrategy.SHALLOW_MERGE,
+  },
+
+  // Channels configuration (Telegram, Discord, etc.)
+  channels: {
+    type: 'object',
+    label: 'Channels',
+    category: 'Advanced',
+    requiresRestart: true,
+    default: {} as Record<string, Record<string, unknown>>,
+    description: 'Configuration for messaging channels.',
     showInDialog: false,
     mergeStrategy: MergeStrategy.SHALLOW_MERGE,
   },
@@ -864,6 +876,55 @@ const SETTINGS_SCHEMA = {
     },
   },
 
+  permissions: {
+    type: 'object',
+    label: 'Permissions',
+    category: 'Tools',
+    requiresRestart: true,
+    default: {},
+    description:
+      'Permission rules controlling tool usage. Rules are evaluated in priority order: deny > ask > allow.',
+    showInDialog: false,
+    properties: {
+      allow: {
+        type: 'array',
+        label: 'Allow Rules',
+        category: 'Tools',
+        requiresRestart: true,
+        default: undefined as string[] | undefined,
+        description:
+          'Tools or commands that are auto-approved without confirmation. ' +
+          'Examples: "ShellTool", "Bash(git *)", "ReadFileTool".',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.UNION,
+      },
+      ask: {
+        type: 'array',
+        label: 'Ask Rules',
+        category: 'Tools',
+        requiresRestart: true,
+        default: undefined as string[] | undefined,
+        description:
+          'Tools or commands that always require user confirmation. ' +
+          'Takes precedence over allow rules.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.UNION,
+      },
+      deny: {
+        type: 'array',
+        label: 'Deny Rules',
+        category: 'Tools',
+        requiresRestart: true,
+        default: undefined as string[] | undefined,
+        description:
+          'Tools or commands that are always blocked. Highest priority rule. ' +
+          'Examples: "ShellTool", "Bash(rm -rf *)".',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.UNION,
+      },
+    },
+  },
+
   tools: {
     type: 'object',
     label: 'Tools',
@@ -923,32 +984,33 @@ const SETTINGS_SCHEMA = {
           },
         },
       },
+      // Legacy tool permission fields – kept for backward compatibility.
+      // Use permissions.{allow,ask,deny} instead.
       core: {
         type: 'array',
-        label: 'Core Tools',
+        label: 'Core Tools (deprecated)',
         category: 'Tools',
         requiresRestart: true,
         default: undefined as string[] | undefined,
-        description: 'Paths to core tool definitions.',
+        description: 'Deprecated. Use permissions.allow instead.',
         showInDialog: false,
       },
       allowed: {
         type: 'array',
-        label: 'Allowed Tools',
+        label: 'Allowed Tools (deprecated)',
         category: 'Advanced',
         requiresRestart: true,
         default: undefined as string[] | undefined,
-        description:
-          'A list of tool names that will bypass the confirmation dialog.',
+        description: 'Deprecated. Use permissions.allow instead.',
         showInDialog: false,
       },
       exclude: {
         type: 'array',
-        label: 'Exclude Tools',
+        label: 'Exclude Tools (deprecated)',
         category: 'Tools',
         requiresRestart: true,
         default: undefined as string[] | undefined,
-        description: 'Tool names to exclude from discovery.',
+        description: 'Deprecated. Use permissions.deny instead.',
         showInDialog: false,
         mergeStrategy: MergeStrategy.UNION,
       },
@@ -1213,6 +1275,17 @@ const SETTINGS_SCHEMA = {
         description: 'Configuration for the bug report command.',
         showInDialog: false,
       },
+      runtimeOutputDir: {
+        type: 'string',
+        label: 'Runtime Output Directory',
+        category: 'Advanced',
+        requiresRestart: true,
+        default: undefined as string | undefined,
+        description:
+          'Custom directory for runtime output (temp files, debug logs, session data, todos, etc.). ' +
+          'Config files remain at ~/.qwen. Env var QWEN_RUNTIME_DIR takes priority.',
+        showInDialog: false,
+      },
       tavilyApiKey: {
         type: 'string',
         label: 'Tavily API Key (Deprecated)',
@@ -1244,39 +1317,114 @@ const SETTINGS_SCHEMA = {
     description: 'Configuration for web search providers.',
     showInDialog: false,
   },
-
-  hooksConfig: {
+  agents: {
     type: 'object',
-    label: 'Hooks Config',
+    label: 'Agents',
     category: 'Advanced',
     requiresRestart: false,
     default: {},
     description:
-      'Hook configurations for intercepting and customizing agent behavior.',
+      'Settings for multi-agent collaboration features (Arena, Team, Swarm).',
     showInDialog: false,
     properties: {
-      enabled: {
-        type: 'boolean',
-        label: 'Enable Hooks',
-        category: 'Advanced',
-        requiresRestart: true,
-        default: true,
-        description:
-          'Canonical toggle for the hooks system. When disabled, no hooks will be executed.',
-        showInDialog: false,
-      },
-      disabled: {
-        type: 'array',
-        label: 'Disabled Hooks',
+      displayMode: {
+        type: 'enum',
+        label: 'Display Mode',
         category: 'Advanced',
         requiresRestart: false,
-        default: [] as string[],
+        default: undefined as string | undefined,
         description:
-          'List of hook names (commands) that should be disabled. Hooks in this list will not execute even if configured.',
+          'Display mode for multi-agent sessions. Currently only "in-process" is supported.',
         showInDialog: false,
-        mergeStrategy: MergeStrategy.UNION,
+        options: [
+          { value: 'in-process', label: 'In-process' },
+          // { value: 'tmux', label: 'tmux' },
+          // { value: 'iterm2', label: 'iTerm2' },
+        ],
+      },
+      arena: {
+        type: 'object',
+        label: 'Arena',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: {},
+        description: 'Settings for Arena (multi-model competitive execution).',
+        showInDialog: false,
+        properties: {
+          worktreeBaseDir: {
+            type: 'string',
+            label: 'Worktree Base Directory',
+            category: 'Advanced',
+            requiresRestart: true,
+            default: undefined as string | undefined,
+            description:
+              'Custom base directory for Arena worktrees. Defaults to ~/.qwen/arena.',
+            showInDialog: false,
+          },
+          preserveArtifacts: {
+            type: 'boolean',
+            label: 'Preserve Arena Artifacts',
+            category: 'Advanced',
+            requiresRestart: false,
+            default: false,
+            description:
+              'When enabled, Arena worktrees and session state files are preserved after the session ends or the main agent exits.',
+            showInDialog: true,
+          },
+          maxRoundsPerAgent: {
+            type: 'number',
+            label: 'Max Rounds Per Agent',
+            category: 'Advanced',
+            requiresRestart: false,
+            default: undefined as number | undefined,
+            description:
+              'Maximum number of rounds (turns) each agent can execute. No limit if unset.',
+            showInDialog: false,
+          },
+          timeoutSeconds: {
+            type: 'number',
+            label: 'Timeout (seconds)',
+            category: 'Advanced',
+            requiresRestart: false,
+            default: undefined as number | undefined,
+            description:
+              'Total timeout in seconds for the Arena session. No limit if unset.',
+            showInDialog: false,
+          },
+        },
+      },
+      team: {
+        type: 'object',
+        label: 'Team',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: {},
+        description:
+          'Settings for Agent Team (role-based collaborative execution). Reserved for future use.',
+        showInDialog: false,
+      },
+      swarm: {
+        type: 'object',
+        label: 'Swarm',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: {},
+        description:
+          'Settings for Agent Swarm (parallel sub-agent execution). Reserved for future use.',
+        showInDialog: false,
       },
     },
+  },
+
+  disableAllHooks: {
+    type: 'boolean',
+    label: 'Disable All Hooks',
+    category: 'Advanced',
+    requiresRestart: true, // Future enhancement: consider supporting mid-session toggle for better UX
+    default: false,
+    description:
+      'Temporarily disable all hooks without deleting configurations. Default is false (hooks enabled).',
+    showInDialog: false,
   },
 
   hooks: {
@@ -1312,6 +1460,141 @@ const SETTINGS_SCHEMA = {
         showInDialog: false,
         mergeStrategy: MergeStrategy.CONCAT,
         items: HOOK_DEFINITION_ITEMS,
+      },
+      Notification: {
+        type: 'array',
+        label: 'Notification Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute when notifications are sent.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      PreToolUse: {
+        type: 'array',
+        label: 'Pre Tool Use Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute before tool execution.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      PostToolUse: {
+        type: 'array',
+        label: 'Post Tool Use Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute after successful tool execution.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      PostToolUseFailure: {
+        type: 'array',
+        label: 'Post Tool Use Failure Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute when tool execution fails. ',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      SessionStart: {
+        type: 'array',
+        label: 'Session Start Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute when a new session starts or resumes.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      SessionEnd: {
+        type: 'array',
+        label: 'Session End Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute when a session ends.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      PreCompact: {
+        type: 'array',
+        label: 'Pre Compact Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description: 'Hooks that execute before conversation compaction.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      SubagentStart: {
+        type: 'array',
+        label: 'Subagent Start Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description:
+          'Hooks that execute when a subagent (Task tool call) is started.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      SubagentStop: {
+        type: 'array',
+        label: 'Subagent Stop Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description:
+          'Hooks that execute right before a subagent (Task tool call) concludes its response.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+      PermissionRequest: {
+        type: 'array',
+        label: 'Permission Request Hooks',
+        category: 'Advanced',
+        requiresRestart: false,
+        default: [],
+        description:
+          'Hooks that execute when a permission dialog is displayed.',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.CONCAT,
+        items: HOOK_DEFINITION_ITEMS,
+      },
+    },
+  },
+
+  experimental: {
+    type: 'object',
+    label: 'Experimental',
+    category: 'Experimental',
+    requiresRestart: true,
+    default: {},
+    description: 'Settings to enable experimental features.',
+    showInDialog: false,
+    properties: {
+      cron: {
+        type: 'boolean',
+        label: 'Enable Cron/Loop Tools',
+        category: 'Experimental',
+        requiresRestart: true,
+        default: false,
+        description:
+          'Enable in-session cron/loop tools (experimental). When enabled, the model can create recurring prompts using cron_create, cron_list, and cron_delete tools. Can also be enabled via QWEN_CODE_ENABLE_CRON=1 environment variable.',
+        showInDialog: true,
       },
     },
   },

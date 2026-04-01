@@ -43,7 +43,7 @@ import {
   extractPartsFromUserMessage,
   buildSystemMessage,
   createToolProgressHandler,
-  createTaskToolProgressHandler,
+  createAgentToolProgressHandler,
   computeUsageFromMetrics,
 } from './utils/nonInteractiveHelpers.js';
 
@@ -320,12 +320,12 @@ export async function runNonInteractive(
                 : undefined;
 
             // Build outputUpdateHandler for this tool call.
-            // Task tool has its own complex handler (subagent messages).
+            // Agent tool has its own complex handler (subagent messages).
             // All other tools with canUpdateOutput=true (e.g., MCP tools)
             // get a generic handler that emits progress via the adapter.
-            const isTaskTool = finalRequestInfo.name === 'task';
-            const { handler: outputUpdateHandler } = isTaskTool
-              ? createTaskToolProgressHandler(
+            const isAgentTool = finalRequestInfo.name === 'agent';
+            const { handler: outputUpdateHandler } = isAgentTool
+              ? createAgentToolProgressHandler(
                   config,
                   finalRequestInfo.callId,
                   adapter,
@@ -371,6 +371,138 @@ export async function runNonInteractive(
           }
           currentMessages = [{ role: 'user', parts: toolResponseParts }];
         } else {
+          // No more tool calls — check if cron jobs are keeping us alive
+          const scheduler = !config.isCronEnabled()
+            ? null
+            : config.getCronScheduler();
+          if (scheduler && scheduler.size > 0) {
+            // Start the scheduler and wait for all jobs to complete or be deleted.
+            // Each fired prompt is processed as a new turn through the same loop.
+            await new Promise<void>((resolve) => {
+              const cronQueue: string[] = [];
+              let processing = false;
+
+              const checkDone = () => {
+                if (scheduler.size === 0 && !processing) {
+                  scheduler.stop();
+                  resolve();
+                }
+              };
+
+              const drainQueue = async () => {
+                if (processing) return;
+                processing = true;
+                try {
+                  while (cronQueue.length > 0) {
+                    const cronPrompt = cronQueue.shift()!;
+                    turnCount++;
+                    let cronMessages: Content[] = [
+                      { role: 'user', parts: [{ text: cronPrompt }] },
+                    ];
+                    let cronIsFirstTurn = true;
+
+                    while (true) {
+                      const cronToolCallRequests: ToolCallRequestInfo[] = [];
+                      const cronApiStartTime = Date.now();
+                      const cronStream = geminiClient.sendMessageStream(
+                        cronMessages[0]?.parts || [],
+                        abortController.signal,
+                        prompt_id,
+                        {
+                          type: cronIsFirstTurn
+                            ? SendMessageType.Cron
+                            : SendMessageType.ToolResult,
+                        },
+                      );
+                      cronIsFirstTurn = false;
+
+                      adapter.startAssistantMessage();
+
+                      for await (const event of cronStream) {
+                        if (abortController.signal.aborted) {
+                          const summary = scheduler.getExitSummary();
+                          scheduler.stop();
+                          if (summary) {
+                            process.stderr.write(summary + '\n');
+                          }
+                          resolve();
+                          return;
+                        }
+                        adapter.processEvent(event);
+                        if (event.type === GeminiEventType.ToolCallRequest) {
+                          cronToolCallRequests.push(event.value);
+                        }
+                      }
+
+                      adapter.finalizeAssistantMessage();
+                      totalApiDurationMs += Date.now() - cronApiStartTime;
+
+                      if (cronToolCallRequests.length > 0) {
+                        const cronToolResponseParts: Part[] = [];
+
+                        for (const requestInfo of cronToolCallRequests) {
+                          const isAgentTool = requestInfo.name === 'agent';
+                          const { handler: outputUpdateHandler } = isAgentTool
+                            ? createAgentToolProgressHandler(
+                                config,
+                                requestInfo.callId,
+                                adapter,
+                              )
+                            : createToolProgressHandler(requestInfo, adapter);
+
+                          const toolResponse = await executeToolCall(
+                            config,
+                            requestInfo,
+                            abortController.signal,
+                            { outputUpdateHandler },
+                          );
+
+                          if (toolResponse.error) {
+                            handleToolError(
+                              requestInfo.name,
+                              toolResponse.error,
+                              config,
+                              toolResponse.errorType || 'TOOL_EXECUTION_ERROR',
+                              typeof toolResponse.resultDisplay === 'string'
+                                ? toolResponse.resultDisplay
+                                : undefined,
+                            );
+                          }
+
+                          adapter.emitToolResult(requestInfo, toolResponse);
+
+                          if (toolResponse.responseParts) {
+                            cronToolResponseParts.push(
+                              ...toolResponse.responseParts,
+                            );
+                          }
+                        }
+                        cronMessages = [
+                          { role: 'user', parts: cronToolResponseParts },
+                        ];
+                      } else {
+                        break;
+                      }
+                    }
+                  }
+                } catch (error) {
+                  debugLogger.error('Error processing cron prompt:', error);
+                } finally {
+                  processing = false;
+                  checkDone();
+                }
+              };
+
+              scheduler.start((job: { prompt: string }) => {
+                cronQueue.push(job.prompt);
+                void drainQueue();
+              });
+
+              // Also check immediately in case jobs were already deleted
+              checkDone();
+            });
+          }
+
           const metrics = uiTelemetryService.getMetrics();
           const usage = computeUsageFromMetrics(metrics);
           // Get stats for JSON format output
@@ -390,6 +522,16 @@ export async function runNonInteractive(
         }
       }
     } catch (error) {
+      // Ensure message_start / message_stop (and content_block events) are
+      // properly paired even when an error aborts the turn mid-stream.
+      // The call is safe when no message was started (throws → caught) or
+      // when already finalized (idempotent guard inside the adapter).
+      try {
+        adapter.finalizeAssistantMessage();
+      } catch {
+        // Expected when no message was started or already finalized
+      }
+
       // For JSON and STREAM_JSON modes, compute usage from metrics
       const message = error instanceof Error ? error.message : String(error);
       const metrics = uiTelemetryService.getMetrics();

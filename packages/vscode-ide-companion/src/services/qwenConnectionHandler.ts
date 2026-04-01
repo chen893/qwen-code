@@ -10,6 +10,7 @@
  * Handles Qwen Agent connection establishment, authentication, and session creation
  */
 
+import * as vscode from 'vscode';
 import type { AcpConnection } from './acpConnection.js';
 import { isAuthenticationRequiredError } from '../utils/authErrors.js';
 import { authMethod } from '../types/acpTypes.js';
@@ -73,8 +74,18 @@ export class QwenConnectionHandler {
 
     // Build extra CLI arguments (only essential parameters)
     const extraArgs: string[] = [];
+    const httpConfig = vscode.workspace.getConfiguration('http');
+    const proxyUrl =
+      httpConfig.get<string>('proxy') || httpConfig.get<string>('https.proxy');
+    if (proxyUrl) {
+      extraArgs.push('--proxy', proxyUrl);
+      console.log(
+        '[QwenAgentManager] Using proxy from VSCode settings:',
+        proxyUrl,
+      );
+    }
 
-    await connection.connect(cliEntryPath!, workingDir, extraArgs);
+    await connection.connectWithRetry(cliEntryPath!, workingDir, extraArgs);
 
     // Try to restore existing session or create new session
     // Note: Auto-restore on connect is disabled to avoid surprising loads

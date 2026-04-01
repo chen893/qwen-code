@@ -41,6 +41,13 @@ if (!fs.existsSync(vendorDir)) {
   process.exit(1);
 }
 
+const bundledDocsDir = path.join(distDir, 'bundled', 'qc-helper', 'docs');
+if (!fs.existsSync(bundledDocsDir)) {
+  console.error(`Error: Bundled docs not found at ${bundledDocsDir}`);
+  console.error('Please run "npm run bundle" first');
+  process.exit(1);
+}
+
 // Copy README and LICENSE
 console.log('Copying documentation files...');
 const filesToCopy = ['README.md', 'LICENSE'];
@@ -150,16 +157,24 @@ const distPackageJson = {
   bin: {
     qwen: 'cli.js',
   },
-  files: ['cli.js', 'vendor', '*.sb', 'README.md', 'LICENSE', 'locales'],
+  files: [
+    'cli.js',
+    'vendor',
+    '*.sb',
+    'README.md',
+    'LICENSE',
+    'locales',
+    'bundled',
+  ],
   config: rootPackageJson.config,
   dependencies: {},
   optionalDependencies: {
-    '@lydell/node-pty': '1.1.0',
-    '@lydell/node-pty-darwin-arm64': '1.1.0',
-    '@lydell/node-pty-darwin-x64': '1.1.0',
-    '@lydell/node-pty-linux-x64': '1.1.0',
-    '@lydell/node-pty-win32-arm64': '1.1.0',
-    '@lydell/node-pty-win32-x64': '1.1.0',
+    '@lydell/node-pty': '1.2.0-beta.10',
+    '@lydell/node-pty-darwin-arm64': '1.2.0-beta.10',
+    '@lydell/node-pty-darwin-x64': '1.2.0-beta.10',
+    '@lydell/node-pty-linux-x64': '1.2.0-beta.10',
+    '@lydell/node-pty-win32-arm64': '1.2.0-beta.10',
+    '@lydell/node-pty-win32-x64': '1.2.0-beta.10',
     '@teddyzhu/clipboard': '0.0.5',
     '@teddyzhu/clipboard-darwin-arm64': '0.0.5',
     '@teddyzhu/clipboard-darwin-x64': '0.0.5',

@@ -124,7 +124,13 @@ describe('GeminiChat', async () => {
     // Disable 429 simulation for tests
     setSimulate429(false);
     // Reset history for each test by creating a new instance
-    chat = new GeminiChat(mockConfig, config, []);
+    chat = new GeminiChat(
+      mockConfig,
+      config,
+      [],
+      undefined,
+      uiTelemetryService,
+    );
   });
 
   afterEach(() => {
@@ -780,6 +786,48 @@ describe('GeminiChat', async () => {
       expect(uiTelemetryService.setLastPromptTokenCount).toHaveBeenCalledTimes(
         1,
       );
+    });
+
+    it('should not update global telemetry when no telemetryService is provided (subagent isolation)', async () => {
+      // Simulate a subagent GeminiChat: created without a telemetryService
+      const subagentChat = new GeminiChat(mockConfig, config, []);
+
+      const response = (async function* () {
+        yield {
+          candidates: [
+            {
+              content: {
+                parts: [{ text: 'subagent response' }],
+                role: 'model',
+              },
+              finishReason: 'STOP',
+              index: 0,
+              safetyRatings: [],
+            },
+          ],
+          text: () => 'subagent response',
+          usageMetadata: {
+            promptTokenCount: 12000,
+            candidatesTokenCount: 500,
+            totalTokenCount: 12500,
+          },
+        } as unknown as GenerateContentResponse;
+      })();
+      vi.mocked(mockContentGenerator.generateContentStream).mockResolvedValue(
+        response,
+      );
+
+      const stream = await subagentChat.sendMessageStream(
+        'test-model',
+        { message: 'subagent task' },
+        'prompt-id-subagent',
+      );
+      for await (const _ of stream) {
+        // consume stream
+      }
+
+      // The global uiTelemetryService must NOT be called by subagent chats
+      expect(uiTelemetryService.setLastPromptTokenCount).not.toHaveBeenCalled();
     });
 
     it('should keep parts with thoughtSignature when consolidating history', async () => {
