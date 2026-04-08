@@ -39,6 +39,7 @@ import { resumeCommand } from '../ui/commands/resumeCommand.js';
 import { settingsCommand } from '../ui/commands/settingsCommand.js';
 import { skillsCommand } from '../ui/commands/skillsCommand.js';
 import { statsCommand } from '../ui/commands/statsCommand.js';
+import { statuslineCommand } from '../ui/commands/statuslineCommand.js';
 import { summaryCommand } from '../ui/commands/summaryCommand.js';
 import { terminalSetupCommand } from '../ui/commands/terminalSetupCommand.js';
 import { themeCommand } from '../ui/commands/themeCommand.js';
@@ -94,6 +95,7 @@ export class BuiltinCommandLoader implements ICommandLoader {
       resumeCommand,
       skillsCommand,
       statsCommand,
+      statuslineCommand,
       summaryCommand,
       themeCommand,
       toolsCommand,

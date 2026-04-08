@@ -14,6 +14,9 @@ import { VimModeProvider } from '../contexts/VimModeContext.js';
 import type { LoadedSettings } from '../../config/settings.js';
 
 vi.mock('../hooks/useTerminalSize.js');
+vi.mock('web-tree-sitter', () => ({
+  default: class MockParser {},
+}));
 const useTerminalSizeMock = vi.mocked(useTerminalSize.useTerminalSize);
 
 const defaultProps = {
@@ -29,7 +32,9 @@ const createMockConfig = (overrides = {}) => ({
   ...overrides,
 });
 
-const createMockUIState = (overrides: Partial<UIState> = {}): UIState =>
+const createMockUIState = (
+  overrides: Partial<UIState> & Record<string, unknown> = {},
+): UIState =>
   ({
     sessionStats: {
       lastPromptTokenCount: 100,
@@ -94,5 +99,20 @@ describe('<Footer />', () => {
       const { lastFrame } = renderWithWidth(79, createMockUIState());
       expect(lastFrame()).toMatchSnapshot('complete-footer-narrow');
     });
+  });
+
+  it('renders a custom status line above the default footer hint', () => {
+    const { lastFrame } = renderWithWidth(
+      120,
+      createMockUIState({
+        statusLineText: 'branch: main\nctx: 12%',
+        statusLinePadding: 2,
+      }),
+    );
+
+    expect(lastFrame()).toContain('branch: main');
+    expect(lastFrame()).toContain('ctx: 12%');
+    expect(lastFrame()).toContain('? for shortcuts');
+    expect(lastFrame()).toMatch(/branch: main[\s\S]*\? for shortcuts/);
   });
 });

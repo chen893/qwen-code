@@ -93,6 +93,8 @@ export interface UIState {
   showEscapePrompt: boolean;
   elapsedTime: number;
   currentLoadingPhrase: string;
+  statusLineText: string | undefined;
+  statusLinePadding: number;
   historyRemountKey: number;
   messageQueue: string[];
   showAutoAcceptIndicator: ApprovalMode;

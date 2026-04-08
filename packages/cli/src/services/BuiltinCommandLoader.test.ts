@@ -76,6 +76,10 @@ import { CommandKind } from '../ui/commands/types.js';
 
 import { restoreCommand } from '../ui/commands/restoreCommand.js';
 
+vi.mock('web-tree-sitter', () => ({
+  default: class MockParser {},
+}));
+
 vi.mock('../ui/commands/authCommand.js', () => ({ authCommand: {} }));
 vi.mock('../ui/commands/bugCommand.js', () => ({ bugCommand: {} }));
 vi.mock('../ui/commands/clearCommand.js', () => ({ clearCommand: {} }));
@@ -205,6 +209,13 @@ describe('BuiltinCommandLoader', () => {
     const modelCmd = commands.find((c) => c.name === 'model');
     expect(modelCmd).toBeDefined();
     expect(modelCmd?.name).toBe('model');
+  });
+
+  it('should include the statusline command', async () => {
+    const loader = new BuiltinCommandLoader(mockConfig);
+    const commands = await loader.loadCommands(new AbortController().signal);
+    const statuslineCmd = commands.find((c) => c.name === 'statusline');
+    expect(statuslineCmd).toBeDefined();
   });
 
   it('should always include hooks command regardless of disableAllHooks', async () => {

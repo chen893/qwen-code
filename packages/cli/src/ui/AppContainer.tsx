@@ -116,6 +116,7 @@ import {
   requestConsentInteractive,
   requestConsentOrFail,
 } from '../commands/extensions/consent.js';
+import { useStatusLine } from './statusline/useStatusLine.js';
 
 const CTRL_EXIT_PROMPT_DURATION_MS = 1000;
 const debugLogger = createDebugLogger('APP_CONTAINER');
@@ -536,7 +537,16 @@ export const AppContainer = (props: AppContainerProps) => {
     remount: refreshStatic,
   });
 
-  const { toggleVimEnabled } = useVimMode();
+  const { toggleVimEnabled, vimEnabled, vimMode } = useVimMode();
+  const { statusLineText, statusLinePadding } = useStatusLine({
+    config,
+    settings,
+    history: historyManager.history,
+    currentModel,
+    sessionStats,
+    vimEnabled,
+    vimMode,
+  });
 
   const {
     isSubagentCreateDialogOpen,
@@ -854,7 +864,13 @@ export const AppContainer = (props: AppContainerProps) => {
         setControlsHeight(fullFooterMeasurement.height);
       }
     }
-  }, [buffer, terminalWidth, terminalHeight]);
+  }, [
+    buffer,
+    terminalWidth,
+    terminalHeight,
+    statusLineText,
+    statusLinePadding,
+  ]);
 
   // agentViewState is declared earlier (before handleFinalSubmit) so it
   // is available for input routing. Referenced here for layout computation.
@@ -1529,6 +1545,8 @@ export const AppContainer = (props: AppContainerProps) => {
       isFocused,
       elapsedTime,
       currentLoadingPhrase,
+      statusLineText,
+      statusLinePadding,
       historyRemountKey,
       messageQueue,
       showAutoAcceptIndicator,
@@ -1631,6 +1649,8 @@ export const AppContainer = (props: AppContainerProps) => {
       isFocused,
       elapsedTime,
       currentLoadingPhrase,
+      statusLineText,
+      statusLinePadding,
       historyRemountKey,
       messageQueue,
       showAutoAcceptIndicator,

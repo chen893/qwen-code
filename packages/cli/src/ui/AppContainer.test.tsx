@@ -48,6 +48,7 @@ let capturedUIActions: UIActions;
 function TestContextConsumer() {
   capturedUIState = useContext(UIStateContext)!;
   capturedUIActions = useContext(UIActionsContext)!;
+  capturedUIState.mainControlsRef.current = {} as never;
   return null;
 }
 
@@ -78,6 +79,7 @@ vi.mock('./hooks/useAutoAcceptIndicator.js');
 vi.mock('./hooks/useGitBranchName.js');
 vi.mock('./contexts/VimModeContext.js');
 vi.mock('./contexts/SessionContext.js');
+vi.mock('./statusline/useStatusLine.js');
 vi.mock('./contexts/AgentViewContext.js', () => ({
   useAgentViewState: vi.fn(() => ({
     activeView: 'main',
@@ -120,6 +122,7 @@ import { useSessionStats } from './contexts/SessionContext.js';
 import { useTextBuffer } from './components/shared/text-buffer.js';
 import { useLogger } from './hooks/useLogger.js';
 import { useLoadingIndicator } from './hooks/useLoadingIndicator.js';
+import { useStatusLine } from './statusline/useStatusLine.js';
 import { measureElement } from 'ink';
 import { useTerminalSize } from './hooks/useTerminalSize.js';
 import { ShellExecutionService } from '@qwen-code/qwen-code-core';
@@ -149,6 +152,7 @@ describe('AppContainer State Management', () => {
   const mockedUseTextBuffer = useTextBuffer as Mock;
   const mockedUseLogger = useLogger as Mock;
   const mockedUseLoadingIndicator = useLoadingIndicator as Mock;
+  const mockedUseStatusLine = useStatusLine as Mock;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -247,7 +251,8 @@ describe('AppContainer State Management', () => {
     mockedUseAutoAcceptIndicator.mockReturnValue(false);
     mockedUseGitBranchName.mockReturnValue('main');
     mockedUseVimMode.mockReturnValue({
-      isVimEnabled: false,
+      vimEnabled: false,
+      vimMode: 'NORMAL',
       toggleVimEnabled: vi.fn(),
     });
     mockedUseSessionStats.mockReturnValue({ stats: {} });
@@ -262,6 +267,10 @@ describe('AppContainer State Management', () => {
     mockedUseLoadingIndicator.mockReturnValue({
       elapsedTime: '0.0s',
       currentLoadingPhrase: '',
+    });
+    mockedUseStatusLine.mockReturnValue({
+      statusLineText: undefined,
+      statusLinePadding: 2,
     });
 
     // Mock Config
@@ -961,6 +970,56 @@ describe('AppContainer State Management', () => {
         resizePtySpy.mock.calls[resizePtySpy.mock.calls.length - 1];
       // Check the height argument specifically
       expect(lastCall[2]).toBe(1);
+    });
+
+    it('should re-measure controls when the status line changes height', () => {
+      mockedUseTerminalSize.mockReturnValue({ columns: 80, rows: 24 });
+
+      let measuredHeight = 2;
+      mockedMeasureElement.mockImplementation(() => ({
+        width: 80,
+        height: measuredHeight,
+      }));
+
+      let statusLineState = {
+        statusLineText: undefined as string | undefined,
+        statusLinePadding: 2,
+      };
+      mockedUseStatusLine.mockImplementation(() => statusLineState);
+
+      const { rerender } = render(
+        <AppContainer
+          config={mockConfig}
+          settings={mockSettings}
+          version="1.0.0"
+          initializationResult={mockInitResult}
+        />,
+      );
+
+      const initialMeasureCalls = mockedMeasureElement.mock.calls.length;
+      const initialAvailableHeight = capturedUIState.availableTerminalHeight;
+
+      measuredHeight = 4;
+      statusLineState = {
+        statusLineText: 'branch: main\nctx: 12%',
+        statusLinePadding: 2,
+      };
+
+      rerender(
+        <AppContainer
+          config={mockConfig}
+          settings={mockSettings}
+          version="1.0.0"
+          initializationResult={mockInitResult}
+        />,
+      );
+
+      expect(mockedMeasureElement.mock.calls.length).toBeGreaterThan(
+        initialMeasureCalls,
+      );
+      expect(capturedUIState.availableTerminalHeight).toBeLessThan(
+        initialAvailableHeight,
+      );
     });
   });
 

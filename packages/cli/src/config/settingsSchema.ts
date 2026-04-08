@@ -552,6 +552,51 @@ const SETTINGS_SCHEMA = {
         description: 'The last time the feedback dialog was shown.',
         showInDialog: false,
       },
+      statusLine: {
+        type: 'object',
+        label: 'Status Line',
+        category: 'UI',
+        requiresRestart: false,
+        default: undefined as
+          | {
+              type: 'command';
+              command: string;
+              padding?: number;
+            }
+          | undefined,
+        description: 'Custom status line display configuration.',
+        showInDialog: false,
+        properties: {
+          type: {
+            type: 'enum',
+            label: 'Status Line Type',
+            category: 'UI',
+            requiresRestart: false,
+            default: 'command' as const,
+            description: 'The status line backend type.',
+            showInDialog: false,
+            options: [{ value: 'command', label: 'Command' }],
+          },
+          command: {
+            type: 'string',
+            label: 'Status Line Command',
+            category: 'UI',
+            requiresRestart: false,
+            default: '' as string,
+            description: 'The command to execute to render the custom status line.',
+            showInDialog: false,
+          },
+          padding: {
+            type: 'number',
+            label: 'Status Line Padding',
+            category: 'UI',
+            requiresRestart: false,
+            default: 2,
+            description: 'Extra horizontal padding for the custom status line.',
+            showInDialog: false,
+          },
+        },
+      },
     },
   },
 

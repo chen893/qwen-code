@@ -4,13 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   getSettingsSchema,
   type SettingDefinition,
   type Settings,
   type SettingsSchema,
 } from './settingsSchema.js';
+
+vi.mock('web-tree-sitter', () => ({
+  default: class MockParser {},
+}));
 
 describe('SettingsSchema', () => {
   describe('getSettingsSchema', () => {
@@ -196,6 +200,9 @@ describe('SettingsSchema', () => {
       expect(getSettingsSchema().ui.properties.accessibility.showInDialog).toBe(
         false,
       );
+      expect(getSettingsSchema().ui.properties.statusLine.showInDialog).toBe(
+        false,
+      );
       expect(
         getSettingsSchema().context.properties.fileFiltering.showInDialog,
       ).toBe(false);
@@ -305,6 +312,39 @@ describe('SettingsSchema', () => {
         getSettingsSchema().general.properties.debugKeystrokeLogging
           .description,
       ).toBe('Enable debug logging of keystrokes to the console.');
+    });
+
+    it('should have statusLine setting in schema', () => {
+      expect(getSettingsSchema().ui.properties.statusLine).toBeDefined();
+      expect(getSettingsSchema().ui.properties.statusLine.type).toBe('object');
+      expect(
+        getSettingsSchema().ui.properties.statusLine.properties?.type.type,
+      ).toBe('enum');
+      expect(
+        getSettingsSchema().ui.properties.statusLine.properties?.command.type,
+      ).toBe('string');
+      expect(
+        getSettingsSchema().ui.properties.statusLine.properties?.padding.type,
+      ).toBe('number');
+      expect(
+        getSettingsSchema().ui.properties.statusLine.description,
+      ).toBe('Custom status line display configuration.');
+    });
+
+    it('should infer statusLine settings type correctly', () => {
+      const settings: Settings = {
+        ui: {
+          statusLine: {
+            type: 'command',
+            command: 'echo status',
+            padding: 2,
+          },
+        },
+      };
+
+      expect(settings.ui?.statusLine?.type).toBe('command');
+      expect(settings.ui?.statusLine?.command).toBe('echo status');
+      expect(settings.ui?.statusLine?.padding).toBe(2);
     });
   });
 });

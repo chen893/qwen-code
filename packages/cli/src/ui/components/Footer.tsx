@@ -47,6 +47,10 @@ export const Footer: React.FC = () => {
 
   const contextWindowSize =
     config.getContentGeneratorConfig()?.contextWindowSize;
+  const statusLineText = uiState.statusLineText;
+  const statusLinePadding = uiState.statusLinePadding;
+  const statusLineLines = statusLineText?.split('\n') ?? [];
+  const hasStatusLine = statusLineLines.length > 0;
 
   // Left section should show exactly ONE thing at any time, in priority order.
   const leftContent = uiState.ctrlCPressedOnce ? (
@@ -100,15 +104,43 @@ export const Footer: React.FC = () => {
       flexDirection="row"
       alignItems="center"
     >
-      {/* Left Section: Exactly one status line (exit prompts / mode indicator / default hint) */}
-      <Box
-        marginLeft={2}
-        justifyContent="flex-start"
-        flexDirection={isNarrow ? 'column' : 'row'}
-        alignItems={isNarrow ? 'flex-start' : 'center'}
-      >
-        {leftContent}
-      </Box>
+      {/* Left Section: Status line above the existing footer hint when configured */}
+      {hasStatusLine ? (
+        <Box
+          marginLeft={2}
+          justifyContent="flex-start"
+          flexDirection="column"
+          alignItems="flex-start"
+        >
+          <Box
+            justifyContent="flex-start"
+            flexDirection="column"
+            alignItems="flex-start"
+            marginLeft={statusLinePadding}
+            marginRight={statusLinePadding}
+          >
+            {statusLineLines.map((line, index) => (
+              <Text key={`${index}-${line}`}>{line}</Text>
+            ))}
+          </Box>
+          <Box
+            justifyContent="flex-start"
+            flexDirection={isNarrow ? 'column' : 'row'}
+            alignItems={isNarrow ? 'flex-start' : 'center'}
+          >
+            {leftContent}
+          </Box>
+        </Box>
+      ) : (
+        <Box
+          marginLeft={2}
+          justifyContent="flex-start"
+          flexDirection={isNarrow ? 'column' : 'row'}
+          alignItems={isNarrow ? 'flex-start' : 'center'}
+        >
+          {leftContent}
+        </Box>
+      )}
 
       {/* Right Section: Sandbox Info, Debug Mode, Context Usage, and Console Summary */}
       <Box alignItems="center" justifyContent="flex-end" marginRight={2}>
