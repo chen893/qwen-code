@@ -88,6 +88,10 @@ import {
   buildPermissionRequestContent,
   toPermissionOptions,
 } from './permissionUtils.js';
+import {
+  MessageRewriteMiddleware,
+  loadRewriteConfig,
+} from './rewrite/index.js';
 
 const debugLogger = createDebugLogger('SESSION');
 
@@ -124,6 +128,9 @@ export class Session implements SessionContext {
   private readonly planEmitter: PlanEmitter;
   private readonly messageEmitter: MessageEmitter;
 
+  // Message rewrite middleware (optional, installed after history replay)
+  messageRewriter?: MessageRewriteMiddleware;
+
   // Implement SessionContext interface
   readonly sessionId: string;
 
@@ -150,6 +157,22 @@ export class Session implements SessionContext {
 
   getConfig(): Config {
     return this.config;
+  }
+
+  /**
+   * Install the message rewrite middleware if configured.
+   * Must be called AFTER history replay to avoid rewriting historical messages.
+   */
+  installRewriter(): void {
+    const rewriteConfig = loadRewriteConfig(this.settings);
+    if (rewriteConfig?.enabled) {
+      debugLogger.info('Message rewrite middleware enabled');
+      this.messageRewriter = new MessageRewriteMiddleware(
+        this.config,
+        rewriteConfig,
+        (update) => this.sendUpdate(update),
+      );
+    }
   }
 
   /**
@@ -391,6 +414,11 @@ export class Session implements SessionContext {
           }
 
           if (usageMetadata) {
+            // Kick off rewrite in background (non-blocking, runs parallel to tools)
+            if (this.messageRewriter) {
+              this.messageRewriter.flushTurn(pendingSend.signal);
+            }
+
             const durationMs = Date.now() - streamStartTime;
             await this.messageEmitter.emitUsageMetadata(
               usageMetadata,
@@ -413,6 +441,10 @@ export class Session implements SessionContext {
 
             nextMessage = { role: 'user', parts: toolResponseParts };
           }
+        }
+        // Wait for any pending rewrite before returning
+        if (this.messageRewriter) {
+          await this.messageRewriter.waitForPendingRewrites();
         }
         return { stopReason: 'end_turn' };
       },
@@ -560,6 +592,10 @@ export class Session implements SessionContext {
             }
 
             if (usageMetadata) {
+              // Kick off rewrite in background (non-blocking)
+              if (this.messageRewriter) {
+                this.messageRewriter.flushTurn(ac.signal);
+              }
               const durationMs = Date.now() - streamStartTime;
               await this.messageEmitter.emitUsageMetadata(
                 usageMetadata,
@@ -697,6 +733,10 @@ export class Session implements SessionContext {
       case ToolConfirmationOutcome.ProceedAlways:
         newModeId = 'auto-edit';
         break;
+      case ToolConfirmationOutcome.RestorePrevious:
+        // onConfirm has already restored the mode; read the actual current mode
+        newModeId = this.config.getApprovalMode() as ApprovalModeValue;
+        break;
       case ToolConfirmationOutcome.ProceedOnce:
       default:
         newModeId = 'default';
@@ -709,27 +749,6 @@ export class Session implements SessionContext {
     };
 
     await this.sendUpdate(update);
-  }
-
-  private async resolveIdeDiffForOutcome(
-    confirmationDetails: ToolCallConfirmationDetails,
-    outcome: ToolConfirmationOutcome,
-  ): Promise<void> {
-    if (
-      confirmationDetails.type !== 'edit' ||
-      !confirmationDetails.ideConfirmation
-    ) {
-      return;
-    }
-
-    const { IdeClient } = await import('@qwen-code/qwen-code-core');
-    const ideClient = await IdeClient.getInstance();
-    const cliOutcome =
-      outcome === ToolConfirmationOutcome.Cancel ? 'rejected' : 'accepted';
-    await ideClient.resolveDiffFromCli(
-      confirmationDetails.filePath,
-      cliOutcome as 'accepted' | 'rejected',
-    );
   }
 
   private async runTool(
@@ -946,10 +965,6 @@ export class Session implements SessionContext {
                   hookResult.updatedInput as typeof invocation.params;
               }
 
-              await this.resolveIdeDiffForOutcome(
-                confirmationDetails,
-                ToolConfirmationOutcome.ProceedOnce,
-              );
               await confirmationDetails.onConfirm(
                 ToolConfirmationOutcome.ProceedOnce,
               );
@@ -1020,8 +1035,6 @@ export class Session implements SessionContext {
                   .nativeEnum(ToolConfirmationOutcome)
                   .parse(output.outcome.optionId);
 
-          await this.resolveIdeDiffForOutcome(confirmationDetails, outcome);
-
           await confirmationDetails.onConfirm(outcome, {
             answers: output.answers,
           });
@@ -1072,6 +1085,7 @@ export class Session implements SessionContext {
             case ToolConfirmationOutcome.ProceedAlwaysServer:
             case ToolConfirmationOutcome.ProceedAlwaysTool:
             case ToolConfirmationOutcome.ModifyWithEditor:
+            case ToolConfirmationOutcome.RestorePrevious:
               break;
             default: {
               const resultOutcome: never = outcome;
